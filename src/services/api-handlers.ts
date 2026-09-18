@@ -157,7 +157,7 @@ export async function handleListMemories(
     await ensureTursoReady();
     // Listing only reads SQLite rows; no vector ops happen here.
     // See handleListTags comment - keep embedding init out of read paths.
-    let allMemories: any[] = [];
+    const allMemories: any[] = [];
     if (tag) {
       const { scope: tagScope, hash } = extractScopeFromTag(tag);
       const shards = await tursoShardManager.getAllShards(tagScope, hash);
@@ -548,7 +548,7 @@ export async function handleSearch(
     await ensureTursoReady();
     await embeddingService.warmup();
     const queryVector = await embeddingService.embedWithTimeout(query, { task: "query" });
-    let memoryResults: any[] = [];
+    const memoryResults: any[] = [];
     let promptResults: any[] = [];
     if (tag) {
       const { scope, hash } = extractScopeFromTag(tag);
@@ -1434,7 +1434,7 @@ interface MigrationProgress {
   errors: string[];
 }
 
-let migrationProgress: MigrationProgress = {
+const migrationProgress: MigrationProgress = {
   processed: 0,
   total: 0,
   currentBatch: 0,
@@ -1461,7 +1461,6 @@ export async function handleRunTagMigrationBatch(
     const provider = AIProviderFactory.createProvider(CONFIG.memoryProvider, providerConfig);
     const projectShards = await tursoShardManager.getAllShards("project", "");
 
-    let batchProcessed = 0;
     const allMemories: { memory: any; shard: any }[] = [];
 
     for (const shard of projectShards) {
@@ -1532,7 +1531,6 @@ export async function handleRunTagMigrationBatch(
         await tursoVectorSearch.updateVector(db, m.id, vector, tagsVector);
 
         migrationProgress.processed++;
-        batchProcessed++;
       } catch (e) {
         const errorMsg = String(e);
         migrationProgress.errors.push(errorMsg);
