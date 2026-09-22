@@ -640,7 +640,22 @@ async function applyValidations(
   return `validated: ${confirmed} confirmed, ${contradicted} contradicted, ${inaccurate} inaccurate, ${oversimplified} oversimplified`;
 }
 
-async function analyzeUserProfile(
+/**
+ * Resolves the language the profile-analysis LLM must write in, honoring the
+ * same `autoCaptureLanguage` config used by auto-capture (src/services/auto-capture.ts)
+ * so both auto-captured memories and the user profile stay in the configured
+ * language instead of silently mirroring whatever language the user typed in.
+ */
+export async function resolveProfileLanguageName(context: string): Promise<string> {
+  const { detectLanguage, getLanguageName } = await import("./language-detector.js");
+  const targetLang =
+    CONFIG.autoCaptureLanguage === "auto" || !CONFIG.autoCaptureLanguage
+      ? detectLanguage(context)
+      : CONFIG.autoCaptureLanguage;
+  return getLanguageName(targetLang);
+}
+
+export async function analyzeUserProfile(
   context: string,
   existingProfile: UserProfile | null
 ): Promise<AnalysisResult | null> {
@@ -659,11 +674,13 @@ async function analyzeUserProfile(
 
       const v2Client = await getOpenCodeClient();
 
+      const langName = await resolveProfileLanguageName(context);
+
       const systemPrompt = `You are a user behavior analyst for a coding assistant.
 
 Your task is to analyze user prompts and ${existingProfile ? "update" : "create"} a comprehensive user profile.
 
-CRITICAL: Detect the language used by the user in their prompts. You MUST output all descriptions, categories, and text in the SAME language as the user's prompts.
+CRITICAL: You MUST write all descriptions, categories, and text in ${langName}.
 
 CRITICAL: All JSON string values MUST escape double quotes with backslash. Do NOT use unescaped quotation marks inside string values.
 
@@ -733,11 +750,13 @@ Use the update_user_profile tool to save the ${existingProfile ? "updated" : "ne
 
   const provider = AIProviderFactory.createProvider(CONFIG.memoryProvider, providerConfig);
 
+  const langName = await resolveProfileLanguageName(context);
+
   const systemPrompt = `You are a user behavior analyst for a coding assistant.
 
 Your task is to analyze user prompts and ${existingProfile ? "update" : "create"} a comprehensive user profile.
 
-CRITICAL: Detect the language used by the user in their prompts. You MUST output all descriptions, categories, and text in the SAME language as the user's prompts.
+CRITICAL: You MUST write all descriptions, categories, and text in ${langName}.
 
 CRITICAL: All JSON string values MUST escape double quotes with backslash. Do NOT use unescaped quotation marks inside string values.
 
