@@ -168,8 +168,9 @@ Rules:
     }
 
     const context = buildUserAnalysisContext(prompts, existingProfile, validationPrompt);
+    const langName = await resolveProfileLanguageName(prompts);
 
-    const analysisResult = await analyzeUserProfile(context, existingProfile);
+    const analysisResult = await analyzeUserProfile(context, existingProfile, langName);
 
     log("user-profile-learning: analyze done", { hasResult: !!analysisResult });
 
@@ -643,22 +644,39 @@ async function applyValidations(
 /**
  * Resolves the language the profile-analysis LLM must write in, honoring the
  * same `autoCaptureLanguage` config used by auto-capture (src/services/auto-capture.ts)
- * so both auto-captured memories and the user profile stay in the configured
- * language instead of silently mirroring whatever language the user typed in.
+ * so auto-captured memories and the user profile follow the same language setting.
+ *
+ * In "auto" mode, detection runs on the raw prompt text only — never on the
+ * analysis context, whose English instruction scaffold would bias detection
+ * toward English for short non-English prompts.
  */
-export async function resolveProfileLanguageName(context: string): Promise<string> {
+export async function resolveProfileLanguageName(prompts: UserPrompt[]): Promise<string> {
   const { detectLanguage, getLanguageName } = await import("./language-detector.js");
   const targetLang =
     CONFIG.autoCaptureLanguage === "auto" || !CONFIG.autoCaptureLanguage
-      ? detectLanguage(context)
+      ? detectLanguage(prompts.map((p) => p.content).join("\n\n"))
       : CONFIG.autoCaptureLanguage;
   return getLanguageName(targetLang);
 }
 
-export async function analyzeUserProfile(
+function buildProfileSystemPrompt(existingProfile: UserProfile | null, langName: string): string {
+  return `You are a user behavior analyst for a coding assistant.
+
+Your task is to analyze user prompts and ${existingProfile ? "update" : "create"} a comprehensive user profile.
+
+CRITICAL: You MUST write all descriptions, categories, and text in ${langName}.
+
+CRITICAL: All JSON string values MUST escape double quotes with backslash. Do NOT use unescaped quotation marks inside string values.
+
+Use the update_user_profile tool to save the ${existingProfile ? "updated" : "new"} profile.`;
+}
+
+async function analyzeUserProfile(
   context: string,
-  existingProfile: UserProfile | null
+  existingProfile: UserProfile | null,
+  langName: string
 ): Promise<AnalysisResult | null> {
+  const systemPrompt = buildProfileSystemPrompt(existingProfile, langName);
   log("user-profile-learning: analyze called", { hasProfile: !!existingProfile });
   let opencodeProviderError: unknown;
   if (CONFIG.opencodeProvider && CONFIG.opencodeModel) {
@@ -673,18 +691,6 @@ export async function analyzeUserProfile(
       });
 
       const v2Client = await getOpenCodeClient();
-
-      const langName = await resolveProfileLanguageName(context);
-
-      const systemPrompt = `You are a user behavior analyst for a coding assistant.
-
-Your task is to analyze user prompts and ${existingProfile ? "update" : "create"} a comprehensive user profile.
-
-CRITICAL: You MUST write all descriptions, categories, and text in ${langName}.
-
-CRITICAL: All JSON string values MUST escape double quotes with backslash. Do NOT use unescaped quotation marks inside string values.
-
-Use the update_user_profile tool to save the ${existingProfile ? "updated" : "new"} profile.`;
 
       const { z } = await import("zod");
       const schema = createUserProfileAnalysisSchema(z);
@@ -749,18 +755,6 @@ Use the update_user_profile tool to save the ${existingProfile ? "updated" : "ne
   const providerConfig = buildMemoryProviderConfig(CONFIG);
 
   const provider = AIProviderFactory.createProvider(CONFIG.memoryProvider, providerConfig);
-
-  const langName = await resolveProfileLanguageName(context);
-
-  const systemPrompt = `You are a user behavior analyst for a coding assistant.
-
-Your task is to analyze user prompts and ${existingProfile ? "update" : "create"} a comprehensive user profile.
-
-CRITICAL: You MUST write all descriptions, categories, and text in ${langName}.
-
-CRITICAL: All JSON string values MUST escape double quotes with backslash. Do NOT use unescaped quotation marks inside string values.
-
-Use the update_user_profile tool to save the ${existingProfile ? "updated" : "new"} profile.`;
 
   const toolSchema = createUserProfileToolSchema(Boolean(existingProfile));
 
